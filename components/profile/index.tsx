@@ -19,7 +19,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   useSession,
@@ -39,18 +39,102 @@ import {
   CardContent,
   Container,
   Typography,
+  Input,
 } from "@material-ui/core";
 
 import BusinessIcon from "@material-ui/icons/Business";
 
 import { FOAF, VCARD } from "@inrupt/lit-generated-vocab-common";
+import { addStringNoLocale, addUrl, asUrl, createSolidDataset, createThing, getSolidDataset, getStringNoLocale, getThing, getThingAll, getUrl, getUrlAll, removeThing, saveSolidDatasetAt, setThing } from "@inrupt/solid-client";
 
-import ContactTable from "../contactTable";
+const TEST_TYPE = "https://example.com/test_type"
+const TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const TEXT = "https://schema.org/text";
 
-export default function LoginForm(): React.ReactElement {
+export default function Form(): React.ReactElement {
   const { session } = useSession();
   const { webId } = session.info;
+
+
+  const opts = { fetch: session.fetch };
+
+  const [indexUrl, setIndexUrl] = useState("");
+
   const [editing, setEditing] = useState(false);
+  const [dataset, setDataset] = useState(null);
+  const [elementsList, setElementsList] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const profileDataset = await getSolidDataset(webId, opts);
+      const profile = getThing(profileDataset, webId);
+      const podUrl = getUrlAll(profile, "http://www.w3.org/ns/pim/space#storage")[0];
+
+      const newIndexUrl = podUrl + "example_error";
+      setIndexUrl(newIndexUrl);
+
+      const newDataset = createSolidDataset();
+
+      const curr_dataset = await saveSolidDatasetAt(newIndexUrl, newDataset, opts);
+
+      setDataset(curr_dataset);
+      on_update();
+    })();
+  }, [session, setDataset, setIndexUrl]);
+
+  const on_update = async () => {
+    if(!indexUrl) return;
+
+    const curr_dataset = await getSolidDataset(indexUrl, opts);
+    setDataset(curr_dataset);
+
+    let thingsList = getThingAll(curr_dataset);
+    thingsList = thingsList.filter((thing) => (getUrl(thing, TYPE) === TEST_TYPE));
+
+    setElementsList(thingsList.map((thing) => {
+      const txt = getStringNoLocale(thing, TEXT)
+      return (
+          <li>{txt} <Button onClick={() => {remove_thing(asUrl(thing, ""))}}>Delete</Button></li>
+      );
+    }));
+  }
+
+  const create_thing = async (txt) => {
+    if(!dataset) return;
+
+    let testThing = createThing();
+
+    console.log("Set " + TEXT + " to " + txt);
+    testThing = addStringNoLocale(testThing, TEXT, txt);
+
+    console.log("Set " + TYPE + " to " + TEST_TYPE);
+    testThing = addUrl(testThing, TYPE, TEST_TYPE);
+
+    const updatedDataset = setThing(dataset, testThing);
+
+    console.log("Save to " + indexUrl);
+    const finalDataset = await saveSolidDatasetAt(indexUrl, updatedDataset, opts);
+
+    setDataset(finalDataset);
+    on_update();
+  }
+
+  const remove_thing = async (url) => {
+    if(!dataset) return;
+    
+    const thing = getThing(dataset, url);
+    const updatedDataset = removeThing(dataset, thing);
+
+    const finalDataset = await saveSolidDatasetAt(indexUrl, updatedDataset, opts);
+    setDataset(finalDataset);
+    on_update();
+  }
+
+  
+  const [nametext, setnametext] = useState("");
+  const onChange = (event) => {
+    setnametext(event.target.value);
+  }
 
   return (
     <Container fixed>
@@ -69,66 +153,23 @@ export default function LoginForm(): React.ReactElement {
               display: "flex",
             }}
           >
-            <Image property={VCARD.hasPhoto.iri.value} width={480} />
           </CardActionArea>
 
           <CardContent>
-            <Typography gutterBottom variant="h5" component="h2">
-              <Text property={FOAF.name.iri.value} edit={editing} autosave />
-            </Typography>
-
-            <Typography
-              variant="body2"
-              color="textSecondary"
-              component="p"
-              style={{
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              <BusinessIcon />
-
-              <Text
-                property={VCARD.organization_name.iri.value}
-                edit={editing}
-                autosave
-              />
-            </Typography>
-
             <Typography variant="body2" color="textSecondary" component="p">
               {"Born: "}
-              <Value
-                property={VCARD.bday.iri.value}
-                dataType="datetime"
-                edit={editing}
-                autosave
-              />
+              {elementsList}
             </Typography>
-          </CardContent>
-
-          <CardContent>
-            <Typography gutterBottom variant="h6" component="h3">
-              Email Addresses
-            </Typography>
-
-            <ContactTable property={VCARD.hasEmail.value} edit={editing} />
-          </CardContent>
-
-          <CardContent>
-            <Typography gutterBottom variant="h6" component="h3">
-              Phone Numbers
-            </Typography>
-
-            <ContactTable property={VCARD.hasTelephone.value} edit={editing} />
           </CardContent>
 
           <CardActions>
+            <Input type="text" placeholder="Name" onChange={onChange} />
             <Button
               size="small"
               color="primary"
-              onClick={() => setEditing(!editing)}
+              onClick={() => create_thing(nametext)}
             >
-              Toggle Edit
+              Create
             </Button>
           </CardActions>
         </Card>
